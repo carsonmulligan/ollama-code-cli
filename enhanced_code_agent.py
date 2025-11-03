@@ -243,8 +243,8 @@ class EnhancedCodeAgent:
         
         tools['list_files'] = Tool(
             'list_files',
-            'List files in a directory. Usage: list_files(directory)',
-            self._list_files
+            'List files in a directory. Usage: list_files() or list_files(directory)',
+            lambda *args: self._list_files(args[0] if args and args[0] else ".")
         )
         
         tools['search_files'] = Tool(
@@ -274,7 +274,7 @@ class EnhancedCodeAgent:
         tools['show_todos'] = Tool(
             'show_todos',
             'Display the current todo list. Usage: show_todos()',
-            self._show_todos
+            lambda *args: self._show_todos()
         )
 
         return tools
