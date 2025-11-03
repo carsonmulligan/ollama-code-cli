@@ -39,13 +39,96 @@ except ImportError:
 
 console = Console()
 
+class Todo:
+    """Represents a single todo item"""
+    def __init__(self, content: str, status: str = "pending", active_form: str = ""):
+        self.content = content
+        self.status = status  # pending, in_progress, completed
+        self.active_form = active_form or f"Working on: {content}"
+
+    def to_dict(self):
+        return {
+            "content": self.content,
+            "status": self.status,
+            "activeForm": self.active_form
+        }
+
+class TodoList:
+    """Manages a list of todos for task tracking"""
+    def __init__(self):
+        self.todos: List[Todo] = []
+
+    def add(self, content: str, status: str = "pending", active_form: str = ""):
+        """Add a new todo"""
+        todo = Todo(content, status, active_form)
+        self.todos.append(todo)
+
+    def update(self, index: int, status: str = None, content: str = None):
+        """Update a todo's status or content"""
+        if 0 <= index < len(self.todos):
+            if status:
+                self.todos[index].status = status
+            if content:
+                self.todos[index].content = content
+
+    def get_current(self) -> Optional[Todo]:
+        """Get the currently in-progress todo"""
+        for todo in self.todos:
+            if todo.status == "in_progress":
+                return todo
+        return None
+
+    def mark_complete(self, index: int):
+        """Mark a todo as completed"""
+        self.update(index, status="completed")
+
+    def display(self):
+        """Display todos in a nice table"""
+        if not self.todos:
+            console.print("[dim]No todos yet[/dim]")
+            return
+
+        table = Table(title="Task List")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Status", width=12)
+        table.add_column("Task", style="cyan")
+
+        status_icons = {
+            "pending": "⏸️  Pending",
+            "in_progress": "▶️  In Progress",
+            "completed": "✅ Completed"
+        }
+
+        for i, todo in enumerate(self.todos):
+            status_display = status_icons.get(todo.status, todo.status)
+            if todo.status == "in_progress":
+                status_display = f"[yellow]{status_display}[/yellow]"
+            elif todo.status == "completed":
+                status_display = f"[green]{status_display}[/green]"
+
+            table.add_row(str(i+1), status_display, todo.content)
+
+        console.print(table)
+
+    def get_summary(self) -> str:
+        """Get a text summary of todos"""
+        if not self.todos:
+            return "No todos"
+
+        lines = []
+        for i, todo in enumerate(self.todos):
+            status_icon = {"pending": "⏸️", "in_progress": "▶️", "completed": "✅"}[todo.status]
+            lines.append(f"{i+1}. [{todo.status}] {status_icon} {todo.content}")
+
+        return "\n".join(lines)
+
 class Tool:
     """Base class for tools"""
     def __init__(self, name: str, description: str, func: Callable):
         self.name = name
         self.description = description
         self.func = func
-    
+
     def execute(self, *args, **kwargs):
         return self.func(*args, **kwargs)
 
@@ -57,6 +140,9 @@ class EnhancedCodeAgent:
         self.working_directory = Path.cwd()
         self.tools = self._register_tools()
         self.session_start = datetime.now()
+        self.todo_list = TodoList()
+        self.iterative_mode = False
+        self.project_context = ""
         
     def _register_tools(self) -> Dict[str, Tool]:
         """Register available tools"""
@@ -103,7 +189,25 @@ class EnhancedCodeAgent:
             'Create a new directory. Usage: create_directory(path)',
             self._create_directory
         )
-        
+
+        tools['add_todo'] = Tool(
+            'add_todo',
+            'Add a task to the todo list. Usage: add_todo(task_description)',
+            self._add_todo
+        )
+
+        tools['update_todo'] = Tool(
+            'update_todo',
+            'Update todo status. Usage: update_todo(task_number, status) where status is pending/in_progress/completed',
+            self._update_todo
+        )
+
+        tools['show_todos'] = Tool(
+            'show_todos',
+            'Display the current todo list. Usage: show_todos()',
+            self._show_todos
+        )
+
         return tools
     
     def _read_file(self, filepath: str) -> str:
