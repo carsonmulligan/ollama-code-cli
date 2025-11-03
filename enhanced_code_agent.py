@@ -768,27 +768,35 @@ def print_welcome():
     """Print welcome screen"""
     welcome = """
 # 🤖 Enhanced Local Code Agent
-    
+
 **Powered by Ollama** • Running locally on your machine
 
 ## Available Commands
 - `/help` - Show this help
+- `/init` - Analyze codebase and provide context
 - `/clear` - Clear conversation history
 - `/model <name>` - Switch model
 - `/pwd` - Show current directory
 - `/cd <path>` - Change directory
 - `/tools` - List available tools
+- `/todo` - Show current task list
+- `/plan` - Ask agent to create a plan for your request
 - `/exit` - Exit
 
+## Features
+- **Iterative Task Execution**: The agent can break down complex tasks and work through them step-by-step
+- **Todo List Management**: Track progress on multi-step tasks
+- **Project Context**: Use `/init` to help the agent understand your codebase
+
 ## Tools
-The agent has access to file operations, shell commands, and more!
+The agent has access to file operations, shell commands, todo management, and more!
 Just describe what you want to do naturally.
 
 **Examples:**
 - "Read the contents of main.py"
-- "List all Python files in this directory"
-- "Run the tests using pytest"
-- "Create a new file called test.js with a hello world function"
+- "Create a REST API with authentication" (will create todos and work iteratively)
+- "Refactor the user module to use async/await"
+- "Run the tests and fix any failures"
 """
     console.print(Panel(Markdown(welcome), border_style="cyan", title="Welcome", padding=1))
 
