@@ -281,16 +281,28 @@ class EnhancedCodeAgent:
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions"""
         tools_desc = "\n".join([f"- {name}: {tool.description}" for name, tool in self.tools.items()])
-        
+
         return f"""You are an expert AI coding assistant running locally. You help with coding, debugging, and file operations.
 
 You have access to these tools:
 {tools_desc}
 
-To use a tool, write: TOOL[tool_name](arg1, arg2, ...)
-Example: TOOL[read_file](main.py)
-Example: TOOL[run_command](ls -la)
-Example: TOOL[write_file](test.py, "print('hello')")
+To use a tool, format it exactly as: TOOL[tool_name](arg1, arg2, ...)
+
+IMPORTANT FORMATTING RULES:
+- Put each tool call on its own line
+- For write_file and edit_file, wrap content in quotes
+- Use proper escaping for quotes inside content
+- For multi-line content, use triple quotes or escape newlines
+
+Examples:
+- TOOL[read_file](main.py)
+- TOOL[run_command](ls -la)
+- TOOL[write_file](test.py, "print('hello world')")
+- TOOL[write_file](app.js, "function greet() {{\n  console.log('Hi');\n}}")
+- TOOL[edit_file](config.py, "DEBUG = False", "DEBUG = True")
+- TOOL[list_files](.)
+- TOOL[create_directory](src/components)
 
 Current directory: {self.working_directory}
 Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -301,42 +313,116 @@ Guidelines:
 3. Ask for confirmation before destructive operations
 4. Provide clear, concise explanations
 5. Use markdown formatting for better readability
+6. When writing files, always show what content you're writing
 """
     
     def _extract_tool_calls(self, text: str) -> List[Dict]:
         """Extract tool calls from agent response"""
         # Pattern: TOOL[tool_name](args)
-        pattern = r'TOOL\[(\w+)\]\((.*?)\)'
-        matches = re.findall(pattern, text, re.DOTALL)
-        
+        # Find all TOOL[ positions first, then parse each one
         tool_calls = []
-        for tool_name, args_str in matches:
-            tool_calls.append({
-                'tool': tool_name,
-                'args': args_str
-            })
-        
+        pattern = r'TOOL\[(\w+)\]'
+
+        # Find all TOOL[name] occurrences
+        for match in re.finditer(pattern, text):
+            tool_name = match.group(1)
+            start_pos = match.end()  # Position after TOOL[name]
+
+            # Find the matching parentheses
+            if start_pos < len(text) and text[start_pos] == '(':
+                # Count parentheses to find the closing one
+                paren_count = 0
+                in_quotes = False
+                quote_char = None
+                end_pos = start_pos
+
+                for i in range(start_pos, len(text)):
+                    char = text[i]
+
+                    # Handle quotes
+                    if char in ['"', "'"] and (i == 0 or text[i-1] != '\\'):
+                        if not in_quotes:
+                            in_quotes = True
+                            quote_char = char
+                        elif char == quote_char:
+                            in_quotes = False
+                            quote_char = None
+
+                    # Count parentheses only outside quotes
+                    if not in_quotes:
+                        if char == '(':
+                            paren_count += 1
+                        elif char == ')':
+                            paren_count -= 1
+                            if paren_count == 0:
+                                end_pos = i
+                                break
+
+                # Extract the arguments
+                if end_pos > start_pos:
+                    args_str = text[start_pos+1:end_pos]  # +1 to skip opening (
+                    tool_calls.append({
+                        'tool': tool_name,
+                        'args': args_str.strip()
+                    })
+
         return tool_calls
-    
+
     def _parse_args(self, args_str: str) -> tuple:
-        """Parse tool arguments"""
-        # Simple parsing - split by comma, strip quotes
+        """Parse tool arguments with improved handling for complex content"""
         args = []
         current_arg = ""
         in_quotes = False
-        
-        for char in args_str:
-            if char in ['"', "'"]:
-                in_quotes = not in_quotes
-            elif char == ',' and not in_quotes:
-                args.append(current_arg.strip().strip('"').strip("'"))
+        quote_char = None
+        paren_depth = 0
+        i = 0
+
+        while i < len(args_str):
+            char = args_str[i]
+
+            # Handle escape sequences - preserve them as-is including the backslash
+            if char == '\\' and i + 1 < len(args_str) and in_quotes:
+                # Keep escape sequences intact
+                current_arg += char
+                i += 1
+                if i < len(args_str):
+                    current_arg += args_str[i]
+                i += 1
+                continue
+
+            # Handle quotes
+            if char in ['"', "'"] and paren_depth == 0:
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = char
+                elif char == quote_char:
+                    in_quotes = False
+                    quote_char = None
+                else:
+                    current_arg += char
+                i += 1
+                continue
+
+            # Track parentheses depth
+            if not in_quotes:
+                if char == '(':
+                    paren_depth += 1
+                elif char == ')':
+                    paren_depth -= 1
+
+            # Split on comma only if not in quotes and at depth 0
+            if char == ',' and not in_quotes and paren_depth == 0:
+                args.append(current_arg.strip())
                 current_arg = ""
             else:
                 current_arg += char
-        
-        if current_arg:
-            args.append(current_arg.strip().strip('"').strip("'"))
-        
+
+            i += 1
+
+        # Add final argument
+        if current_arg.strip():
+            args.append(current_arg.strip())
+
         return tuple(args)
     
     def call_ollama(self, prompt: str) -> str:
@@ -386,35 +472,44 @@ Guidelines:
     def execute_tool_calls(self, response: str) -> str:
         """Execute any tool calls in the response"""
         tool_calls = self._extract_tool_calls(response)
-        
+
         if not tool_calls:
             return response
-        
+
         # Display tool calls
         console.print("\n[cyan]🔧 Executing tools...[/cyan]")
-        
+
         results = []
         for call in tool_calls:
             tool_name = call['tool']
-            
+
             if tool_name not in self.tools:
                 results.append(f"Error: Unknown tool '{tool_name}'")
                 continue
-            
+
             try:
                 args = self._parse_args(call['args'])
+                console.print(f"[dim]  → {tool_name}({', '.join(str(arg)[:50] + '...' if len(str(arg)) > 50 else str(arg) for arg in args)})[/dim]")
                 tool = self.tools[tool_name]
                 result = tool.execute(*args)
                 results.append(result)
             except Exception as e:
-                results.append(f"Error executing {tool_name}: {str(e)}")
-        
+                error_msg = f"Error executing {tool_name}: {str(e)}"
+                console.print(f"[red]{error_msg}[/red]")
+                results.append(error_msg)
+
         # Combine results
         tool_results = "\n".join(results)
-        
-        # Remove tool calls from response and add results
-        cleaned_response = re.sub(r'TOOL\[\w+\]\(.*?\)', '', response, flags=re.DOTALL)
-        
+
+        # Remove tool calls from response more carefully
+        # Match TOOL[name](content) where content can span multiple lines
+        cleaned_response = re.sub(
+            r'TOOL\[\w+\]\((.*?)\)(?=\s|$|TOOL)',
+            '',
+            response,
+            flags=re.DOTALL | re.MULTILINE
+        ).strip()
+
         return cleaned_response + "\n\n" + tool_results
     
     def chat(self, user_input: str) -> str:
