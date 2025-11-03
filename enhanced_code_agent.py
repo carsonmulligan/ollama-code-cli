@@ -381,10 +381,116 @@ class EnhancedCodeAgent:
                 return f"{size:.1f}{unit}"
             size /= 1024
         return f"{size:.1f}TB"
-    
+
+    def _add_todo(self, task: str) -> str:
+        """Add a task to the todo list"""
+        try:
+            self.todo_list.add(task, status="pending", active_form=f"Working on: {task}")
+            console.print(f"[green]✓ Added todo: {task}[/green]")
+            return f"Added task: {task}"
+        except Exception as e:
+            return f"Error adding todo: {str(e)}"
+
+    def _update_todo(self, task_number: str, status: str) -> str:
+        """Update a todo's status"""
+        try:
+            index = int(task_number) - 1
+            if status not in ["pending", "in_progress", "completed"]:
+                return f"Error: Invalid status. Use pending, in_progress, or completed"
+
+            self.todo_list.update(index, status=status)
+            console.print(f"[green]✓ Updated task {task_number} to {status}[/green]")
+            return f"Updated task {task_number} to {status}"
+        except Exception as e:
+            return f"Error updating todo: {str(e)}"
+
+    def _show_todos(self) -> str:
+        """Display the current todo list"""
+        try:
+            self.todo_list.display()
+            return "Displayed todo list"
+        except Exception as e:
+            return f"Error showing todos: {str(e)}"
+
+    def init_project(self) -> str:
+        """Analyze the codebase and provide context"""
+        console.print("\n[cyan]🔍 Analyzing codebase...[/cyan]\n")
+
+        analysis = []
+
+        # Read README if it exists
+        readme_files = ['README.md', 'README.txt', 'README']
+        for readme in readme_files:
+            readme_path = self.working_directory / readme
+            if readme_path.exists():
+                try:
+                    content = readme_path.read_text()[:2000]  # First 2000 chars
+                    analysis.append(f"## README Summary\n{content[:500]}...")
+                    break
+                except:
+                    pass
+
+        # List top-level structure
+        analysis.append("\n## Project Structure")
+        try:
+            items = sorted(self.working_directory.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+            structure_lines = []
+            for item in items[:20]:
+                if item.name.startswith('.'):
+                    continue
+                icon = "📁" if item.is_dir() else "📄"
+                structure_lines.append(f"  {icon} {item.name}")
+            analysis.append("\n".join(structure_lines))
+        except Exception as e:
+            analysis.append(f"Error reading structure: {e}")
+
+        # Detect language/framework
+        analysis.append("\n## Detected Technologies")
+        tech_indicators = {
+            'package.json': 'Node.js/JavaScript',
+            'requirements.txt': 'Python',
+            'Cargo.toml': 'Rust',
+            'go.mod': 'Go',
+            'pom.xml': 'Java (Maven)',
+            'build.gradle': 'Java (Gradle)',
+            'Gemfile': 'Ruby'
+        }
+
+        found_tech = []
+        for file, tech in tech_indicators.items():
+            if (self.working_directory / file).exists():
+                found_tech.append(f"  • {tech}")
+
+        if found_tech:
+            analysis.append("\n".join(found_tech))
+        else:
+            analysis.append("  • No common project files detected")
+
+        # Save context
+        self.project_context = "\n".join(analysis)
+
+        # Display the analysis
+        console.print(Panel(
+            Markdown(self.project_context),
+            title="📋 Project Analysis",
+            border_style="cyan"
+        ))
+
+        return "Project initialized and analyzed"
+
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions"""
         tools_desc = "\n".join([f"- {name}: {tool.description}" for name, tool in self.tools.items()])
+
+        # Add project context if available
+        context_section = ""
+        if self.project_context:
+            context_section = f"\n## Project Context\n{self.project_context}\n"
+
+        # Add current todos if any
+        todo_section = ""
+        if self.todo_list.todos:
+            todo_section = f"\n## Current Tasks\n{self.todo_list.get_summary()}\n"
 
         return f"""You are an expert AI coding assistant running locally. You help with coding, debugging, and file operations.
 
@@ -405,11 +511,13 @@ Examples:
 - TOOL[write_file](test.py, "print('hello world')")
 - TOOL[write_file](app.js, "function greet() {{\n  console.log('Hi');\n}}")
 - TOOL[edit_file](config.py, "DEBUG = False", "DEBUG = True")
-- TOOL[list_files](.)
-- TOOL[create_directory](src/components)
+- TOOL[add_todo](Implement user authentication)
+- TOOL[update_todo](1, in_progress)
+- TOOL[show_todos]()
 
 Current directory: {self.working_directory}
 Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+{context_section}{todo_section}
 
 Guidelines:
 1. Always explain what you're doing before using tools
@@ -418,6 +526,25 @@ Guidelines:
 4. Provide clear, concise explanations
 5. Use markdown formatting for better readability
 6. When writing files, always show what content you're writing
+
+ITERATIVE WORKFLOW (for complex tasks):
+1. Break down complex requests into smaller tasks using TOOL[add_todo](task_description)
+2. Mark tasks as in_progress when you start: TOOL[update_todo](1, in_progress)
+3. Complete each task before moving to the next
+4. Mark tasks as completed: TOOL[update_todo](1, completed)
+5. Check your work and verify results
+6. Continue until all tasks are done
+
+Example workflow:
+User asks: "Create a REST API with authentication"
+1. TOOL[add_todo](Design API endpoints and structure)
+2. TOOL[add_todo](Implement basic server setup)
+3. TOOL[add_todo](Add authentication middleware)
+4. TOOL[add_todo](Create API routes)
+5. TOOL[add_todo](Write tests)
+6. Then work through each task iteratively
+
+Always think step-by-step and use the todo list for multi-step tasks!
 """
     
     def _extract_tool_calls(self, text: str) -> List[Dict]:
