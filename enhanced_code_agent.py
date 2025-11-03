@@ -354,7 +354,7 @@ Always think step-by-step and use the todo list for multi-step tasks!
         return tool_calls
 
     def _parse_args(self,args_str:str)->tuple:
-        args,current_arg,in_quotes,quote_char,paren_depth,i=[],""False,None,0,0
+        args,current_arg,in_quotes,quote_char,paren_depth,i=[],"",False,None,0,0
         while i<len(args_str):
             char=args_str[i]
             if char=='\\'and i+1<len(args_str)and in_quotes:
