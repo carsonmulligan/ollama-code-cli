@@ -32,6 +32,20 @@ chmod +x enhanced_code_agent.py
 python3 local_code_agent.py
 ```
 
+### Agent Commands
+
+The enhanced agent supports these commands:
+- `/init` - Analyze the codebase and provide context (like Claude Code's init)
+- `/help` - Show help and available commands
+- `/todo` - Display current task list
+- `/plan <request>` - Ask agent to create a plan and todos for your request
+- `/clear` - Clear conversation history
+- `/model <name>` - Switch between Ollama models
+- `/pwd` - Show current working directory
+- `/cd <path>` - Change working directory
+- `/tools` - List all available tools
+- `/exit` - Exit the agent
+
 ### Ollama Commands
 
 ```bash
@@ -107,6 +121,35 @@ Tools are registered in `_register_tools()` method and executed via Tool.execute
 - `ENABLE_AUTO_TOOL_EXECUTION` - Auto-execute tools without confirmation (default: True)
 - `IGNORED_DIRECTORIES` - Directories to skip when listing/searching files
 
+## New Features (Claude Code-inspired)
+
+**Iterative Task Execution:**
+The agent can now work iteratively on complex, multi-step tasks:
+- Automatically breaks down complex requests into subtasks
+- Creates and manages a todo list for tracking progress
+- Works through tasks step-by-step
+- Updates task status (pending → in_progress → completed)
+
+**Codebase Analysis (`/init`):**
+Like Claude Code's /init command, this analyzes the project:
+- Reads README for project overview
+- Lists project structure
+- Detects technologies (Python, Node.js, Rust, etc.)
+- Stores context for better assistance
+
+**Todo List Management:**
+Built-in task tracking similar to Claude Code's TodoWrite:
+- `add_todo` tool - Add tasks to the list
+- `update_todo` tool - Change task status
+- `show_todos` tool - Display current tasks
+- Visual task list with status indicators (⏸️ pending, ▶️ in progress, ✅ completed)
+
+**Planning Mode:**
+The `/plan` command asks the agent to create a detailed plan:
+- Breaks down complex requests into actionable steps
+- Creates todos automatically
+- Provides a roadmap before starting work
+
 ## Key Implementation Details
 
 **System Prompt Construction:**
@@ -114,6 +157,9 @@ The agent builds a detailed system prompt in `_build_system_prompt()` that:
 - Describes available tools and their usage
 - Provides working directory context
 - Explains tool call syntax: `TOOL[tool_name](args)`
+- Includes project context from `/init` if available
+- Shows current todo list to maintain task awareness
+- Provides iterative workflow guidance
 - Can be customized via `CUSTOM_SYSTEM_PROMPT` in config.py
 
 **Tool Call Parsing:**
@@ -140,6 +186,65 @@ Add slash commands (like `/help`, `/clear`) in the main() function's command par
 
 **System Prompt Customization:**
 Modify `_build_system_prompt()` or set `CUSTOM_SYSTEM_PROMPT` in config.py.
+
+## Usage Examples
+
+**Basic Analysis:**
+```
+❯ /init
+[Agent analyzes your codebase and shows README, structure, technologies]
+
+❯ What does this repo do?
+[Agent uses project context to explain the codebase]
+```
+
+**Iterative Task Execution:**
+```
+❯ Create a REST API with authentication and tests
+
+🤖 I'll break this down into steps:
+TOOL[add_todo](Design API endpoints and data models)
+TOOL[add_todo](Set up Express server with basic routes)
+TOOL[add_todo](Implement JWT authentication middleware)
+TOOL[add_todo](Create user registration and login endpoints)
+TOOL[add_todo](Write integration tests)
+TOOL[show_todos]()
+
+[Agent then works through each task, updating status as it goes]
+```
+
+**Planning Mode:**
+```
+❯ /plan Refactor the authentication system to use OAuth2
+
+📋 Creating plan for: Refactor the authentication system to use OAuth2
+
+🤖 Here's my plan:
+TOOL[add_todo](Research OAuth2 flow and select library)
+TOOL[add_todo](Update dependencies in package.json)
+TOOL[add_todo](Create OAuth2 configuration file)
+TOOL[add_todo](Refactor auth middleware)
+TOOL[add_todo](Update login/register endpoints)
+TOOL[add_todo](Update tests for OAuth2)
+TOOL[add_todo](Update documentation)
+
+[Shows task list, then ask to proceed with implementation]
+```
+
+**Checking Progress:**
+```
+❯ /todo
+
+Task List
+─────────────────────────────────────────
+ #   Status            Task
+─────────────────────────────────────────
+ 1   ✅ Completed      Design API endpoints
+ 2   ▶️  In Progress   Set up Express server
+ 3   ⏸️  Pending       Implement JWT auth
+ 4   ⏸️  Pending       Create endpoints
+ 5   ⏸️  Pending       Write tests
+```
 
 ## Privacy & Local-First
 

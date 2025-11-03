@@ -896,13 +896,33 @@ def main():
                     table = Table(title="Available Tools")
                     table.add_column("Tool", style="cyan")
                     table.add_column("Description", style="white")
-                    
+
                     for name, tool in agent.tools.items():
                         table.add_row(name, tool.description)
-                    
+
                     console.print(table)
                     continue
-            
+
+                elif cmd == '/init':
+                    agent.init_project()
+                    continue
+
+                elif cmd == '/todo':
+                    agent.todo_list.display()
+                    continue
+
+                elif cmd == '/plan':
+                    if len(cmd_parts) > 1:
+                        request = cmd_parts[1]
+                        console.print(f"\n[cyan]📋 Creating plan for: {request}[/cyan]\n")
+                        plan_prompt = f"Create a detailed step-by-step plan to accomplish this: {request}. Break it down into specific tasks that can be tracked. Use the add_todo tool for each step."
+                        console.print("\n[bold green]🤖 Assistant[/bold green]")
+                        response = agent.chat(plan_prompt)
+                        console.print()
+                    else:
+                        console.print("[yellow]Usage: /plan <your request>[/yellow]")
+                    continue
+
             # Normal chat
             console.print("\n[bold green]🤖 Assistant[/bold green]")
             response = agent.chat(user_input)
