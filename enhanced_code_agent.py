@@ -116,6 +116,7 @@ class EnhancedCodeAgent:
         tools['write_file']=Tool('write_file','Write file. Usage: write_file(filepath,content)',self._write_file)
         tools['edit_file']=Tool('edit_file','Edit file. Usage: edit_file(filepath,old_text,new_text)',self._edit_file)
         tools['run_command']=Tool('run_command','Run command. Usage: run_command(command)',self._run_command)
+        tools['validate_python']=Tool('validate_python','Validate Python syntax. Usage: validate_python(filepath)',self._validate_python)
         tools['list_files']=Tool('list_files','List files. Usage: list_files() or list_files(directory)',lambda*args:self._list_files(args[0]if args and args[0]else"."))
         tools['search_files']=Tool('search_files','Search files. Usage: search_files(pattern)',self._search_files)
         tools['create_directory']=Tool('create_directory','Create directory. Usage: create_directory(path)',self._create_directory)
@@ -173,6 +174,22 @@ class EnhancedCodeAgent:
             return f"Command executed. Exit code: {result.returncode}\n{output}"
         except subprocess.TimeoutExpired:return "Error: Command timed out after 30 seconds"
         except Exception as e:return f"Error executing command: {str(e)}"
+
+    def _validate_python(self,filepath:str)->str:
+        try:
+            path=Path(filepath)if Path(filepath).is_absolute()else self.working_directory/filepath
+            if not path.exists():return f"Error: File not found: {filepath}"
+            code=path.read_text()
+            try:
+                compile(code,'<string>','exec')
+                console.print(f"[green]✓Python syntax is valid in {filepath}[/green]")
+                return f"✓Syntax valid: {filepath}"
+            except SyntaxError as e:
+                error_msg=f"SyntaxError in {filepath} at line {e.lineno}: {e.msg}"
+                if e.text:error_msg+=f"\n  {e.text.strip()}\n  {' '*(e.offset-1)if e.offset else ''}^"
+                console.print(f"[red]{error_msg}[/red]")
+                return f"✗Syntax error found:\n{error_msg}\n\nNext step: Use read_file to examine line {e.lineno}, then use edit_file to fix the issue."
+        except Exception as e:return f"Error validating file: {str(e)}"
 
     def _list_files(self,directory:str=".")->str:
         try:
@@ -287,16 +304,44 @@ IMPORTANT FORMATTING RULES:
 - For write_file and edit_file, wrap content in quotes
 - Use proper escaping for quotes inside content
 - For multi-line content, use triple quotes or escape newlines
+- ALWAYS use proper Python syntax: strings need quotes, e.g. print("hello") not print(hello)
 
 Examples:
 - TOOL[read_file](main.py)
-- TOOL[run_command](ls -la)
 - TOOL[write_file](test.py, "print('hello world')")
+- TOOL[validate_python](test.py)
+- TOOL[run_command](python3 test.py)
 - TOOL[write_file](app.js, "function greet() {{\\n  console.log('Hi');\\n}}")
 - TOOL[edit_file](config.py, "DEBUG = False", "DEBUG = True")
 - TOOL[add_todo](Implement user authentication)
 - TOOL[update_todo](1, in_progress)
 - TOOL[show_todos]()
+
+ERROR RECOVERY WORKFLOW:
+When a command fails (e.g., SyntaxError, NameError), follow these steps:
+1. READ the file first: TOOL[read_file](filename)
+2. IDENTIFY the exact error - look for missing quotes, undefined variables, syntax issues
+3. FIX using edit_file with precise old_text and new_text:
+   - old_text must be the EXACT line(s) from the file that need fixing
+   - new_text must be the corrected version
+4. VALIDATE (for Python): TOOL[validate_python](filename.py) - optional but recommended
+5. VERIFY by running again: TOOL[run_command](python3 filename.py)
+
+Example error recovery:
+If you see: "SyntaxError: invalid syntax. Perhaps you forgot a comma?"
+Or: "NameError: name 'Prime' is not defined"
+These mean strings are missing quotes!
+
+WRONG: print(Hello world)
+RIGHT: print("Hello world")
+
+WRONG: print(Prime numbers up to, limit, are:)
+RIGHT: print("Prime numbers up to", limit, "are:")
+
+When fixing errors:
+TOOL[read_file](script.py)
+TOOL[edit_file](script.py, "print(Hello world)", "print(\\"Hello world\\")")
+TOOL[run_command](python3 script.py)
 
 Current directory: {self.working_directory}
 Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
