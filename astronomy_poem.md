@@ -1,1 +1,21 @@
-# Poem About Astronomy\n\nIn the vast expanse of night,\nThe stars twinkle like diamonds in light.\nMajestic planets in their orbit,\nEach with secrets yet to be discovered.\n\nThe moon above, a silent sentry,\nGuiding ships on voyages far and wide.\nAstronomy, a language of stars,\nDecoding the universe's endless bars.\n\nFrom the Big Bang to cosmic rays,\nA journey through time and space, both great and small.\nBlack holes, nebulae, galaxies in motion,\nAll under the watchful eye of the cosmos' creation.\n\nThrough telescopes we peer into the deep,\nUnveiling mysteries that have been kept.\nThe stars whisper secrets from their light,\nAs we marvel at the beauty of the night.
+# Poem About Astronomy
+
+In the vast expanse of night,
+The stars twinkle like diamonds in light.
+Majestic planets in their orbit,
+Each with secrets yet to be discovered.
+
+The moon above, a silent sentry,
+Guiding ships on voyages far and wide.
+Astronomy, a language of stars,
+Decoding the universe's endless bars.
+
+From the Big Bang to cosmic rays,
+A journey through time and space, both great and small.
+Black holes, nebulae, galaxies in motion,
+All under the watchful eye of the cosmos' creation.
+
+Through telescopes we peer into the deep,
+Unveiling mysteries that have been kept.
+The stars whisper secrets from their light,
+As we marvel at the beauty of the night.

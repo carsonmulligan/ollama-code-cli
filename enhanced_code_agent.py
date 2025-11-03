@@ -13,6 +13,8 @@ from typing import List, Dict, Optional, Callable
 import re
 import requests
 from datetime import datetime
+import time
+import difflib
 
 try:
     from rich.console import Console
@@ -239,14 +241,22 @@ class EnhancedCodeAgent:
             path = Path(filepath)
             if not path.is_absolute():
                 path = self.working_directory / path
-            
+
             # Create parent directories if needed
             path.parent.mkdir(parents=True, exist_ok=True)
-            
+
+            # Process escape sequences (convert \n to actual newlines, etc.)
+            # Use encode().decode() to handle escape sequences properly
+            try:
+                processed_content = content.encode('utf-8').decode('unicode_escape')
+            except:
+                # If that fails, try manual replacement of common escape sequences
+                processed_content = content.replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '\r')
+
             # Write the file
-            path.write_text(content)
-            
-            console.print(f"[green]✓ Written {len(content)} characters to {path}[/green]")
+            path.write_text(processed_content)
+
+            console.print(f"[green]✓ Written {len(processed_content)} characters to {path}[/green]")
             return f"Successfully wrote to {filepath}"
         except Exception as e:
             return f"Error writing file: {str(e)}"
@@ -743,24 +753,85 @@ Always think step-by-step and use the todo list for multi-step tasks!
 
         return cleaned_response + "\n\n" + tool_results
     
+    def _extract_file_mentions(self, text: str) -> List[str]:
+        """Extract @file mentions from text"""
+        # Pattern: @filename or @path/to/file
+        pattern = r'@([\w\-./]+\.\w+)'
+        matches = re.findall(pattern, text)
+        return matches
+
+    def _get_available_files(self, pattern: str = "*") -> List[Path]:
+        """Get list of files in working directory matching pattern"""
+        try:
+            # Get all files recursively, excluding hidden directories
+            files = []
+            for path in self.working_directory.rglob(pattern):
+                # Skip hidden directories and common ignore patterns
+                if any(part.startswith('.') for part in path.parts):
+                    continue
+                if any(ignore in str(path) for ignore in ['node_modules', '__pycache__', 'venv', '.git']):
+                    continue
+                if path.is_file():
+                    files.append(path)
+
+            return sorted(files, key=lambda p: p.name)[:100]  # Limit to 100 files
+        except Exception as e:
+            console.print(f"[red]Error listing files: {e}[/red]")
+            return []
+
+    def _process_file_mentions(self, user_input: str) -> str:
+        """Process @file mentions and add file content to context"""
+        mentioned_files = self._extract_file_mentions(user_input)
+
+        if not mentioned_files:
+            return user_input
+
+        # Build context from mentioned files
+        file_contexts = []
+        for mentioned_file in mentioned_files:
+            file_path = Path(mentioned_file)
+            if not file_path.is_absolute():
+                file_path = self.working_directory / file_path
+
+            if file_path.exists() and file_path.is_file():
+                try:
+                    # Read file content (limit to 5000 chars per file)
+                    content = file_path.read_text()[:5000]
+                    rel_path = file_path.relative_to(self.working_directory) if file_path.is_relative_to(self.working_directory) else file_path
+
+                    file_contexts.append(f"\n## Context from @{rel_path}\n```\n{content}\n```\n")
+                    console.print(f"[dim]📎 Attached: {rel_path}[/dim]")
+                except Exception as e:
+                    console.print(f"[yellow]⚠️  Could not read {mentioned_file}: {e}[/yellow]")
+
+        # Add file contexts to the user input
+        if file_contexts:
+            enhanced_input = user_input + "\n\n" + "\n".join(file_contexts)
+            return enhanced_input
+
+        return user_input
+
     def chat(self, user_input: str) -> str:
         """Main chat interface"""
+        # Process @file mentions
+        enhanced_input = self._process_file_mentions(user_input)
+
         self.conversation_history.append({
             "role": "user",
-            "content": user_input
+            "content": enhanced_input
         })
-        
+
         # Get response from Ollama
-        response = self.call_ollama(user_input)
-        
+        response = self.call_ollama(enhanced_input)
+
         # Execute any tool calls
         final_response = self.execute_tool_calls(response)
-        
+
         self.conversation_history.append({
             "role": "assistant",
             "content": final_response
         })
-        
+
         return final_response
 
 
@@ -772,31 +843,29 @@ def print_welcome():
 **Powered by Ollama** • Running locally on your machine
 
 ## Available Commands
-- `/help` - Show this help
+- `/help` or `/commands` - Show this help
 - `/init` - Analyze codebase and provide context
+- `/files [pattern]` - List files for @ mentions (e.g., `/files *.py`)
 - `/clear` - Clear conversation history
 - `/model <name>` - Switch model
 - `/pwd` - Show current directory
 - `/cd <path>` - Change directory
 - `/tools` - List available tools
 - `/todo` - Show current task list
-- `/plan` - Ask agent to create a plan for your request
+- `/plan <request>` - Ask agent to create a plan for your request
 - `/exit` - Exit
 
 ## Features
+- **File Mentions**: Use `@filename` to attach file context (e.g., "Explain @app.py")
 - **Iterative Task Execution**: The agent can break down complex tasks and work through them step-by-step
 - **Todo List Management**: Track progress on multi-step tasks
 - **Project Context**: Use `/init` to help the agent understand your codebase
 
-## Tools
-The agent has access to file operations, shell commands, todo management, and more!
-Just describe what you want to do naturally.
-
-**Examples:**
-- "Read the contents of main.py"
-- "Create a REST API with authentication" (will create todos and work iteratively)
-- "Refactor the user module to use async/await"
-- "Run the tests and fix any failures"
+## Usage Examples
+- `@config.py what is the default model?` - Ask questions with file context
+- `"Create a REST API with authentication"` - Agent creates todos and works iteratively
+- `"/plan Add user authentication"` - Get a detailed plan before starting
+- `"/files *.py"` - List all Python files for @ mention
 """
     console.print(Panel(Markdown(welcome), border_style="cyan", title="Welcome", padding=1))
 
@@ -868,10 +937,28 @@ def main():
                     console.print("[green]✓ Conversation cleared[/green]")
                     continue
                     
-                elif cmd == '/help':
+                elif cmd == '/help' or cmd == '/commands':
                     print_welcome()
                     continue
-                    
+
+                elif cmd == '/files':
+                    # List files for @ mentions
+                    pattern = cmd_parts[1] if len(cmd_parts) > 1 else "*"
+                    files = agent._get_available_files(pattern)
+
+                    if files:
+                        console.print(f"\n[cyan]📁 Available files (use @filename to mention):[/cyan]\n")
+                        for file in files[:50]:  # Limit display to 50
+                            rel_path = file.relative_to(agent.working_directory)
+                            size = file.stat().st_size
+                            size_str = agent._format_size(size)
+                            console.print(f"  @{rel_path} [dim]({size_str})[/dim]")
+                        if len(files) > 50:
+                            console.print(f"\n[dim]... and {len(files) - 50} more files[/dim]")
+                    else:
+                        console.print(f"[yellow]No files found matching pattern: {pattern}[/yellow]")
+                    continue
+
                 elif cmd == '/pwd':
                     console.print(f"[blue]{agent.working_directory}[/blue]")
                     continue

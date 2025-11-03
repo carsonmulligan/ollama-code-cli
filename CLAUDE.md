@@ -36,7 +36,8 @@ python3 local_code_agent.py
 
 The enhanced agent supports these commands:
 - `/init` - Analyze the codebase and provide context (like Claude Code's init)
-- `/help` - Show help and available commands
+- `/help` or `/commands` - Show help and available commands
+- `/files [pattern]` - List files for @ mentions (e.g., `/files *.py`)
 - `/todo` - Display current task list
 - `/plan <request>` - Ask agent to create a plan and todos for your request
 - `/clear` - Clear conversation history
@@ -45,6 +46,23 @@ The enhanced agent supports these commands:
 - `/cd <path>` - Change working directory
 - `/tools` - List all available tools
 - `/exit` - Exit the agent
+
+### File Mentions (@)
+
+Like Claude Code, you can mention files in your messages using `@filename`:
+```
+❯ @config.py what is the default model?
+📎 Attached: config.py
+
+🤖 Looking at the config file, the default model is "qwen2.5-coder:7b"...
+```
+
+Features:
+- Automatically reads and attaches file content to your message
+- Supports relative paths: `@src/main.py` or `@./README.md`
+- Use `/files` to list all available files
+- Use `/files *.py` to list specific file types
+- Limits file content to 5000 chars to manage context size
 
 ### Ollama Commands
 
