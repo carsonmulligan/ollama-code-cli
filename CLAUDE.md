@@ -141,6 +141,31 @@ Tools are registered in `_register_tools()` method and executed via Tool.execute
 
 ## New Features (Claude Code-inspired)
 
+**Visual Indicators:**
+The agent now displays Claude Code-style visual feedback:
+- **Checkpoints** (⏺) - Shows each tool execution (Read, Write, Update)
+- **Thinking indicators** (∴) - Displays thinking time for model responses
+- **Diffs** - Clean git-style diffs showing additions/removals with line numbers
+- **Token tracking** - Shows input/output tokens and session time
+- **Progress status** - Displays current task, elapsed time, and token usage
+
+Example output:
+```
+⏺ Read(config.py)
+  ⎿ Read 271 lines
+
+⏺ Update(config.py)
+  ⎿ Updated config.py with 3 additions and 1 removal
+       ...
+       -  DEFAULT_MODEL = "llama3.2"
+       +  DEFAULT_MODEL = "qwen2.5-coder:7b"
+       ...
+
+∴ Thought for 2.3s
+
+· Working on: Update configuration · 45s · ↓ 2k in · ↑ 1k out · 3k total
+```
+
 **Iterative Task Execution:**
 The agent can now work iteratively on complex, multi-step tasks:
 - Automatically breaks down complex requests into subtasks

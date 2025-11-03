@@ -41,6 +41,71 @@ except ImportError:
 
 console = Console()
 
+# Token tracking
+class TokenTracker:
+    """Track token usage across the session"""
+    def __init__(self):
+        self.total_tokens = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+
+    def add_tokens(self, prompt: int = 0, completion: int = 0):
+        self.prompt_tokens += prompt
+        self.completion_tokens += completion
+        self.total_tokens = self.prompt_tokens + self.completion_tokens
+
+    def get_summary(self) -> str:
+        return f"↓ {self.prompt_tokens // 1000}k in · ↑ {self.completion_tokens // 1000}k out · {self.total_tokens // 1000}k total"
+
+def show_checkpoint(tool_name: str, message: str = ""):
+    """Display a checkpoint marker like Claude Code"""
+    console.print(f"\n[blue]⏺[/blue] [bold]{tool_name}[/bold]")
+    if message:
+        console.print(f"  [dim]⎿ {message}[/dim]")
+
+def show_diff(old_content: str, new_content: str, filename: str):
+    """Display a git-style diff"""
+    old_lines = old_content.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
+
+    diff = difflib.unified_diff(old_lines, new_lines, lineterm='', n=3)
+
+    changes = {'additions': 0, 'removals': 0}
+    diff_lines = []
+
+    for line in diff:
+        if line.startswith('+++') or line.startswith('---'):
+            continue
+        elif line.startswith('@@'):
+            # Extract line numbers from @@ header
+            diff_lines.append(('header', line.strip()))
+        elif line.startswith('+'):
+            changes['additions'] += 1
+            diff_lines.append(('add', line))
+        elif line.startswith('-'):
+            changes['removals'] += 1
+            diff_lines.append(('remove', line))
+        else:
+            diff_lines.append(('context', line))
+
+    if diff_lines:
+        console.print(f"  [dim]⎿ Updated {filename} with {changes['additions']} additions and {changes['removals']} removals[/dim]")
+
+        # Show first 20 lines of diff
+        for dtype, line in diff_lines[:20]:
+            line_content = line.rstrip()
+            if dtype == 'header':
+                console.print(f"       [dim]{line_content}[/dim]")
+            elif dtype == 'add':
+                console.print(f"       [green]{line_content}[/green]")
+            elif dtype == 'remove':
+                console.print(f"       [red]{line_content}[/red]")
+            else:
+                console.print(f"       [dim]{line_content}[/dim]")
+
+        if len(diff_lines) > 20:
+            console.print(f"       [dim]... {len(diff_lines) - 20} more lines[/dim]")
+
 class Todo:
     """Represents a single todo item"""
     def __init__(self, content: str, status: str = "pending", active_form: str = ""):
@@ -145,6 +210,8 @@ class EnhancedCodeAgent:
         self.todo_list = TodoList()
         self.iterative_mode = False
         self.project_context = ""
+        self.token_tracker = TokenTracker()
+        self.thinking_time = 0
         
     def _register_tools(self) -> Dict[str, Tool]:
         """Register available tools"""
@@ -218,19 +285,27 @@ class EnhancedCodeAgent:
             path = Path(filepath)
             if not path.is_absolute():
                 path = self.working_directory / path
-            
+
             if not path.exists():
                 return f"Error: File not found: {filepath}"
-            
+
             content = path.read_text()
-            
-            # Display with syntax highlighting
+            num_lines = len(content.splitlines())
+
+            # Show checkpoint
+            show_checkpoint(f"Read({path.name})", f"Read {num_lines} lines")
+
+            # Display with syntax highlighting (limited to 100 lines for display)
+            display_content = '\n'.join(content.splitlines()[:100])
+            if num_lines > 100:
+                display_content += f"\n... {num_lines - 100} more lines"
+
             console.print(Panel(
-                Syntax(content, path.suffix[1:] or "text", theme="monokai", line_numbers=True),
+                Syntax(display_content, path.suffix[1:] or "text", theme="monokai", line_numbers=True),
                 title=f"📄 {path.name}",
                 border_style="blue"
             ))
-            
+
             return f"Successfully read {len(content)} characters from {filepath}"
         except Exception as e:
             return f"Error reading file: {str(e)}"
@@ -241,6 +316,10 @@ class EnhancedCodeAgent:
             path = Path(filepath)
             if not path.is_absolute():
                 path = self.working_directory / path
+
+            # Check if file exists for diff
+            file_exists = path.exists()
+            old_content = path.read_text() if file_exists else ""
 
             # Create parent directories if needed
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -256,7 +335,14 @@ class EnhancedCodeAgent:
             # Write the file
             path.write_text(processed_content)
 
-            console.print(f"[green]✓ Written {len(processed_content)} characters to {path}[/green]")
+            # Show checkpoint and diff
+            if file_exists:
+                show_checkpoint(f"Update({path.name})")
+                show_diff(old_content, processed_content, path.name)
+            else:
+                num_lines = len(processed_content.splitlines())
+                show_checkpoint(f"Write({path.name})", f"Created with {num_lines} lines")
+
             return f"Successfully wrote to {filepath}"
         except Exception as e:
             return f"Error writing file: {str(e)}"
@@ -267,19 +353,22 @@ class EnhancedCodeAgent:
             path = Path(filepath)
             if not path.is_absolute():
                 path = self.working_directory / path
-            
+
             if not path.exists():
                 return f"Error: File not found: {filepath}"
-            
-            content = path.read_text()
-            
-            if old_text not in content:
+
+            old_content = path.read_text()
+
+            if old_text not in old_content:
                 return f"Error: Text to replace not found in file"
-            
-            new_content = content.replace(old_text, new_text)
+
+            new_content = old_content.replace(old_text, new_text)
             path.write_text(new_content)
-            
-            console.print(f"[green]✓ Edited {path}[/green]")
+
+            # Show checkpoint and diff
+            show_checkpoint(f"Update({path.name})")
+            show_diff(old_content, new_content, path.name)
+
             return f"Successfully edited {filepath}"
         except Exception as e:
             return f"Error editing file: {str(e)}"
@@ -669,13 +758,13 @@ Always think step-by-step and use the todo list for multi-step tasks!
     def call_ollama(self, prompt: str) -> str:
         """Call Ollama API with streaming"""
         url = f"{self.base_url}/api/generate"
-        
+
         # Build context from history
         context = self._build_system_prompt() + "\n\n"
         for msg in self.conversation_history[-6:]:  # Keep last 6 messages
             context += f"{msg['role']}: {msg['content']}\n\n"
         context += f"user: {prompt}\n\nassistant: "
-        
+
         payload = {
             "model": self.model,
             "prompt": context,
@@ -685,12 +774,18 @@ Always think step-by-step and use the todo list for multi-step tasks!
                 "num_predict": 2048
             }
         }
-        
+
         try:
+            # Track thinking time
+            start_time = time.time()
+
             response = requests.post(url, json=payload, stream=True, timeout=60)
             response.raise_for_status()
-            
+
             full_response = ""
+            token_count = 0
+            prompt_tokens = len(context.split())  # Rough estimate
+
             with Live(Spinner("dots", text="Thinking..."), console=console, refresh_per_second=10) as live:
                 for line in response.iter_lines():
                     if line:
@@ -698,11 +793,18 @@ Always think step-by-step and use the todo list for multi-step tasks!
                         if 'response' in chunk:
                             token = chunk['response']
                             full_response += token
+                            token_count += 1
                             # Update display
                             live.update(Markdown(full_response))
                         if chunk.get('done', False):
+                            # Show thinking indicator
+                            self.thinking_time = time.time() - start_time
+                            console.print(f"\n[dim]∴ Thought for {self.thinking_time:.1f}s[/dim]")
                             break
-            
+
+            # Track tokens
+            self.token_tracker.add_tokens(prompt=prompt_tokens, completion=token_count)
+
             return full_response
         except requests.exceptions.Timeout:
             return "Error: Request timed out. The model might be too slow."
@@ -717,8 +819,7 @@ Always think step-by-step and use the todo list for multi-step tasks!
         if not tool_calls:
             return response
 
-        # Display tool calls
-        console.print("\n[cyan]🔧 Executing tools...[/cyan]")
+        # Don't print "Executing tools..." since we show checkpoints now
 
         results = []
         for call in tool_calls:
@@ -730,13 +831,12 @@ Always think step-by-step and use the todo list for multi-step tasks!
 
             try:
                 args = self._parse_args(call['args'])
-                console.print(f"[dim]  → {tool_name}({', '.join(str(arg)[:50] + '...' if len(str(arg)) > 50 else str(arg) for arg in args)})[/dim]")
                 tool = self.tools[tool_name]
                 result = tool.execute(*args)
                 results.append(result)
             except Exception as e:
                 error_msg = f"Error executing {tool_name}: {str(e)}"
-                console.print(f"[red]{error_msg}[/red]")
+                console.print(f"[red]✗ {error_msg}[/red]")
                 results.append(error_msg)
 
         # Combine results
@@ -831,6 +931,25 @@ Always think step-by-step and use the todo list for multi-step tasks!
             "role": "assistant",
             "content": final_response
         })
+
+        # Show status footer
+        status_parts = []
+
+        # Show current todo if any
+        current_todo = self.todo_list.get_current()
+        if current_todo:
+            status_parts.append(f"· {current_todo.active_form}")
+
+        # Show session time
+        elapsed = (datetime.now() - self.session_start).total_seconds()
+        elapsed_str = f"{int(elapsed)}s" if elapsed < 60 else f"{int(elapsed/60)}m"
+        status_parts.append(f"· {elapsed_str}")
+
+        # Show token usage
+        status_parts.append(f"· {self.token_tracker.get_summary()}")
+
+        if status_parts:
+            console.print(f"\n[dim]{' '.join(status_parts)}[/dim]")
 
         return final_response
 
