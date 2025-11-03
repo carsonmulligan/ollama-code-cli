@@ -1,4 +1,4 @@
-# Ollama Code Agent - LLM-Optimized
+# Ollama Code Agent
 
 Local code agent with Claude Code-like functionality. Single-file implementation (559 lines) optimized for LLM consumption.
 
